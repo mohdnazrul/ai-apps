@@ -7,22 +7,30 @@ use Illuminate\Support\Facades\Log;
 
 class AiTryPromptController extends Controller
 {
+    // You can change these defaults here
+    private const GUEST_LIMIT = 5;
+    private const DEFAULT_SYSTEM_NAME = 'ERP AI Expert';
+
+    /**
+     * POST /ai/try  (invokable)
+     * Body: { message: string, module?: "erp_chat"|"document_ai"|"forecasting"|"workflow_ai" }
+     */
     public function __invoke(Request $request)
     {
         $data = $request->validate([
             'message' => ['required', 'string', 'max:500'],
+            'module'  => ['nullable', 'string', 'in:erp_chat,document_ai,forecasting,workflow_ai'],
         ]);
 
         // ─────────────────────────────────────────────
-        // Guest limit: 5 tries per session
+        // Guest limit
         // ─────────────────────────────────────────────
         $remaining = null;
 
         if (!$request->user()) {
-            $limit = 5;
             $used = (int) $request->session()->get('ai_try_count', 0);
 
-            if ($used >= $limit) {
+            if ($used >= self::GUEST_LIMIT) {
                 return response()->json([
                     'message' => 'Please log in to continue using AI.',
                     'requires_login' => true,
@@ -32,21 +40,24 @@ class AiTryPromptController extends Controller
 
             $used++;
             $request->session()->put('ai_try_count', $used);
-            $remaining = max(0, $limit - $used);
+            $remaining = max(0, self::GUEST_LIMIT - $used);
         }
 
         $userText = trim($data['message']);
+        $module   = $data['module'] ?? null;
 
         try {
             Log::info('AI TRY: request', [
                 'user_id' => optional($request->user())->id,
+                'module'  => $module,
                 'message' => $userText,
             ]);
 
             // ✅ dataset from function (NO JSON FILE)
             $dataset = $this->demoDataset();
 
-            [$answer, $intent] = $this->answerFromDataset($userText, $dataset);
+            // ✅ answer using dataset + (optional) module restriction
+            [$answer, $intent] = $this->answerFromDataset($userText, $dataset, $module);
 
             Log::info('AI TRY: matched intent', [
                 'intent' => $intent,
@@ -81,16 +92,116 @@ class AiTryPromptController extends Controller
     }
 
     /**
+     * GET /ai/modules
+     * Return modules + prompts for frontend cards/chips
+     */
+    public function modules(Request $request)
+    {
+        $demo = $this->aiDemo(); // system + modules
+
+        return response()->json([
+            'system_name' => $demo['system_name'],
+            'modules' => collect($demo['modules'])->map(function ($m, $key) {
+                return [
+                    'key' => $key,
+                    'title' => $m['title'] ?? $key,
+                    'desc' => $m['desc'] ?? '',
+                    'tag' => $m['tag'] ?? '',
+                    'prompts' => array_values($m['prompts'] ?? []),
+                ];
+            })->values(),
+        ]);
+    }
+
+    /**
+     * POST /ai/modules/enable  (optional)
+     * Body: { module: "erp_chat"|"document_ai"|"forecasting"|"workflow_ai" }
+     * Stores enabled modules in session (works for guest testing).
+     */
+    public function enableModule(Request $request)
+    {
+        $data = $request->validate([
+            'module' => ['required', 'string', 'in:erp_chat,document_ai,forecasting,workflow_ai'],
+        ]);
+
+        $module = $data['module'];
+
+        $enabled = (array) $request->session()->get('ai_enabled_modules', []);
+        if (!in_array($module, $enabled, true)) {
+            $enabled[] = $module;
+        }
+        $request->session()->put('ai_enabled_modules', $enabled);
+
+        return response()->json([
+            'enabled_modules' => $enabled,
+        ]);
+    }
+
+    /**
+     * ✅ Put your ai_demo data here (system + 4 modules + prompts)
+     * No config file needed.
+     */
+    private function aiDemo(): array
+    {
+        return [
+            'system_name' => self::DEFAULT_SYSTEM_NAME,
+            'modules' => [
+                'erp_chat' => [
+                    'title' => 'ERP Chat',
+                    'desc'  => 'Search records + explain fields in seconds.',
+                    'tag'   => 'Copilot',
+                    'prompts' => [
+                        'Show unpaid invoices > RM 10k',
+                        'Show unpaid invoices > RM 0 top 10',
+                        'Who has overdue payments?',
+                        'Show overdue invoices top 10',
+                    ],
+                ],
+                'document_ai' => [
+                    'title' => 'Document AI',
+                    'desc'  => 'Extract invoice fields + show invoice details.',
+                    'tag'   => 'Finance',
+                    'prompts' => [
+                        'Extract invoice fields for INV-1001',
+                        'Extract invoice fields for INV-1003',
+                        'Show invoice details for INV-1004',
+                    ],
+                ],
+                'forecasting' => [
+                    'title' => 'Forecasting',
+                    'desc'  => 'Inventory + production planning alerts.',
+                    'tag'   => 'Operations',
+                    'prompts' => [
+                        'List low stock items below reorder point',
+                        'Suggest reorder qty for low stock items',
+                        'Show production delays',
+                    ],
+                ],
+                'workflow_ai' => [
+                    'title' => 'Workflow AI',
+                    'desc'  => 'Approve/reject suggestions + automation flow.',
+                    'tag'   => 'Automation',
+                    'prompts' => [
+                        'Show approval workflow',
+                        'Show workflow rule',
+                        'Approval flow for PO > RM 20k',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
      * Demo dataset stored in PHP (no .json file).
      */
     private function demoDataset(): array
     {
         return [
             "invoices" => [
-                ["no" => "INV-1001", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 15800, "due_date" => "2025-12-01"],
-                ["no" => "INV-1002", "customer" => "XYZ Enterprise", "status" => "paid",   "total" => 5200,  "due_date" => "2025-11-20"],
-                ["no" => "INV-1003", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 27500, "due_date" => "2025-11-15"],
-                ["no" => "INV-1004", "customer" => "Naxxy Trading",  "status" => "unpaid", "total" => 9800,  "due_date" => "2025-12-10"],
+                ["no" => "INV-1001", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 15800, "due_date" => "2025-12-01", "tax" => 0, "date" => "2025-11-01"],
+                ["no" => "INV-1002", "customer" => "XYZ Enterprise", "status" => "paid",   "total" => 5200,  "due_date" => "2025-11-20", "tax" => 0, "date" => "2025-11-05"],
+                ["no" => "INV-1003", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 27500, "due_date" => "2025-11-15", "tax" => 0, "date" => "2025-10-28"],
+                ["no" => "INV-1004", "customer" => "Naxxy Trading",  "status" => "unpaid", "total" => 9800,  "due_date" => "2025-12-10", "tax" => 0, "date" => "2025-11-20"],
             ],
 
             "stock_items" => [
@@ -112,8 +223,9 @@ class AiTryPromptController extends Controller
 
     /**
      * Returns: [answerText|null, intentString]
+     * $module can restrict which answers are allowed.
      */
-    private function answerFromDataset(string $q, array $data): array
+    private function answerFromDataset(string $q, array $data, ?string $module = null): array
     {
         $qLower = mb_strtolower(trim($q));
 
@@ -124,11 +236,12 @@ class AiTryPromptController extends Controller
             return false;
         };
 
-        // ─────────────────────────────────────────────
+        $systemName = $this->aiDemo()['system_name'];
+
         // 0) Greetings / help
-        // ─────────────────────────────────────────────
         if ($hasAny(['hi', 'hello', 'hey', 'hai', 'hye', 'assalamualaikum', 'help'])) {
-            $help = "Hello! I’m ERP AI (demo dataset mode).\n\nTry:\n"
+            // Greeting is allowed for any module
+            $help = "Hello! I’m {$systemName} (demo dataset mode).\n\nTry:\n"
                 . "- Show unpaid invoices > RM 10k\n"
                 . "- Who has overdue payments?\n"
                 . "- List low stock items below reorder point\n"
@@ -138,17 +251,76 @@ class AiTryPromptController extends Controller
         }
 
         // ─────────────────────────────────────────────
-        // 1) Invoices (unpaid / outstanding / overdue)
+        // Document AI: invoice fields/details (by invoice no)
+        // ─────────────────────────────────────────────
+        if ($hasAny(['extract invoice', 'invoice fields', 'invoice details', 'show invoice'])) {
+            if ($module && $module !== 'document_ai') {
+                return [null, 'blocked_by_module'];
+            }
+
+            $invNo = $this->extractInvoiceNo($q);
+            if (!$invNo) return [null, 'document_missing_invoice_no'];
+
+            $invoice = collect($data['invoices'] ?? [])->firstWhere('no', strtoupper($invNo));
+            if (!$invoice) return ["Invoice {$invNo} not found in dataset.", 'document_invoice_not_found'];
+
+            $no = $invoice['no'] ?? '-';
+            $customer = $invoice['customer'] ?? '-';
+            $status = $invoice['status'] ?? '-';
+            $date = $invoice['date'] ?? '-';
+            $due = $invoice['due_date'] ?? '-';
+            $total = number_format((float)($invoice['total'] ?? 0), 2);
+            $tax = number_format((float)($invoice['tax'] ?? 0), 2);
+
+            return [
+                "Invoice fields:\n"
+                . "- Invoice No: {$no}\n"
+                . "- Customer: {$customer}\n"
+                . "- Status: {$status}\n"
+                . "- Date: {$date}\n"
+                . "- Due Date: {$due}\n"
+                . "- Total: RM {$total}\n"
+                . "- Tax: RM {$tax}",
+                'document_invoice_fields'
+            ];
+        }
+
+        // ─────────────────────────────────────────────
+        // Invoices (unpaid/outstanding/overdue)
         // ─────────────────────────────────────────────
         $isInvoiceQuery = $hasAny(['invoice', 'invoices', 'bill', 'bills']);
         $isUnpaidQuery  = $hasAny(['unpaid', 'outstanding', 'not paid', 'pending']);
         $isOverdueQuery = $hasAny(['overdue', 'past due', 'late payment', 'late']);
 
-        if ($isInvoiceQuery && ($isUnpaidQuery || $isOverdueQuery)) {
+        if (($isInvoiceQuery && ($isUnpaidQuery || $isOverdueQuery)) || ($isOverdueQuery && !$isInvoiceQuery)) {
+            if ($module && $module !== 'erp_chat') {
+                return [null, 'blocked_by_module'];
+            }
+
             $min = $this->extractMoney($qLower) ?? 0.0;
             $top = $this->extractTopN($qLower) ?? 10;
 
             $today = now()->toDateString();
+
+            // “who has overdue payments” (no invoice keyword)
+            if ($isOverdueQuery && !$isInvoiceQuery) {
+                $overdue = collect($data['invoices'] ?? [])
+                    ->filter(fn ($i) => (($i['status'] ?? '') === 'unpaid'))
+                    ->filter(fn ($i) => ($i['due_date'] ?? '9999-12-31') < $today);
+
+                if ($overdue->isEmpty()) return ["No overdue unpaid invoices found.", 'overdue_none'];
+
+                $byCustomer = $overdue
+                    ->groupBy('customer')
+                    ->map(fn ($rows) => $rows->sum(fn ($r) => (float)($r['total'] ?? 0)))
+                    ->sortDesc();
+
+                $lines = $byCustomer
+                    ->map(fn ($sum, $cust) => "{$cust}: RM " . number_format($sum, 2))
+                    ->values();
+
+                return ["Overdue customers (unpaid total):\n" . $lines->implode("\n"), 'overdue_customers'];
+            }
 
             $invoices = collect($data['invoices'] ?? [])
                 ->filter(fn ($i) => (($i['status'] ?? '') === 'unpaid'))
@@ -179,32 +351,14 @@ class AiTryPromptController extends Controller
             ];
         }
 
-        // Special: “who has overdue payments?” without invoice keyword
-        if ($isOverdueQuery && !$isInvoiceQuery) {
-            $today = now()->toDateString();
-
-            $overdue = collect($data['invoices'] ?? [])
-                ->filter(fn ($i) => (($i['status'] ?? '') === 'unpaid'))
-                ->filter(fn ($i) => ($i['due_date'] ?? '9999-12-31') < $today);
-
-            if ($overdue->isEmpty()) return ["No overdue unpaid invoices found.", 'overdue_none'];
-
-            $byCustomer = $overdue
-                ->groupBy('customer')
-                ->map(fn ($rows) => $rows->sum(fn ($r) => (float)($r['total'] ?? 0)))
-                ->sortDesc();
-
-            $lines = $byCustomer
-                ->map(fn ($sum, $cust) => "{$cust}: RM " . number_format($sum, 2))
-                ->values();
-
-            return ["Overdue customers (unpaid total):\n" . $lines->implode("\n"), 'overdue_customers'];
-        }
-
         // ─────────────────────────────────────────────
-        // 2) Low stock / reorder
+        // Low stock / reorder
         // ─────────────────────────────────────────────
         if ($hasAny(['low stock', 'low-stock', 'reorder point', 'reorder', 'below reorder'])) {
+            if ($module && $module !== 'forecasting') {
+                return [null, 'blocked_by_module'];
+            }
+
             $items = collect($data['stock_items'] ?? [])
                 ->filter(fn ($i) => (int)($i['qty'] ?? 0) < (int)($i['reorder_point'] ?? 0))
                 ->values();
@@ -217,7 +371,6 @@ class AiTryPromptController extends Controller
                 $qty = (int)($i['qty'] ?? 0);
                 $rp = (int)($i['reorder_point'] ?? 0);
 
-                // Suggest reorder to reach 2x RP (demo rule)
                 $suggest = max(0, ($rp * 2) - $qty);
 
                 return "{$sku} — {$name} | qty {$qty} / rp {$rp} | suggest reorder {$suggest}";
@@ -227,9 +380,13 @@ class AiTryPromptController extends Controller
         }
 
         // ─────────────────────────────────────────────
-        // 3) Production delays
+        // Production delays
         // ─────────────────────────────────────────────
         if ($hasAny(['production delay', 'production delays', 'delayed job', 'delayed jobs', 'production delayed', 'delay'])) {
+            if ($module && $module !== 'forecasting') {
+                return [null, 'blocked_by_module'];
+            }
+
             $jobs = collect($data['production'] ?? [])
                 ->filter(fn ($j) => ($j['status'] ?? '') === 'delayed')
                 ->values();
@@ -248,9 +405,13 @@ class AiTryPromptController extends Controller
         }
 
         // ─────────────────────────────────────────────
-        // 4) Workflow / approval flow
+        // Workflow / approval flow
         // ─────────────────────────────────────────────
         if ($hasAny(['approval', 'approval flow', 'workflow', 'rule'])) {
+            if ($module && $module !== 'workflow_ai') {
+                return [null, 'blocked_by_module'];
+            }
+
             $wf = collect($data['workflows'] ?? [])->first();
             if (!$wf) return [null, 'workflow_none'];
 
@@ -284,6 +445,15 @@ class AiTryPromptController extends Controller
         if (preg_match('/top\s*(\d{1,3})/i', $qLower, $m)) {
             $n = (int) $m[1];
             return ($n > 0 && $n <= 100) ? $n : null;
+        }
+        return null;
+    }
+
+    private function extractInvoiceNo(string $q): ?string
+    {
+        // matches INV-1001 etc
+        if (preg_match('/\bINV-\d+\b/i', $q, $m)) {
+            return strtoupper($m[0]);
         }
         return null;
     }

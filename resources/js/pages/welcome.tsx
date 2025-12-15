@@ -1,4 +1,4 @@
-// resources/js/pages/welcome.tsx
+// resources/js/pages/Welcome.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Head, Link, usePage } from "@inertiajs/react";
 import axios from "axios";
@@ -25,19 +25,86 @@ type TryError = {
   requires_login?: boolean;
 };
 
+// ─────────────────────────────────────────────
+// Option A: modules (frontend-only)
+// ─────────────────────────────────────────────
+type ModuleKey = "erp_chat" | "document_ai" | "forecasting" | "workflow_ai";
+
+const MODULES: Record<
+  ModuleKey,
+  {
+    title: string;
+    hint: string;
+    prompts: string[];
+    theme: {
+      badge: string; // small badge bg
+      ring: string; // focus ring
+      chip: string; // prompt chip
+    };
+  }
+> = {
+  erp_chat: {
+    title: "ERP Chat",
+    hint: 'Try: "Show unpaid invoices > RM 10k top 10"',
+    prompts: [
+      "Show unpaid invoices > RM 10k",
+      "Show unpaid invoices > RM 0 top 10",
+      "Who has overdue payments?",
+      "Show overdue invoices top 10",
+    ],
+    theme: {
+      badge: "bg-sky-600",
+      ring: "focus:ring-sky-400/40",
+      chip: "border-sky-200 bg-sky-50 text-sky-900 hover:border-sky-300 dark:border-sky-700/40 dark:bg-sky-900/20 dark:text-sky-100",
+    },
+  },
+
+  document_ai: {
+    title: "Document AI",
+    hint: 'Try: "Extract invoice fields for INV-1001"',
+    prompts: [
+      "Extract invoice fields for INV-1001",
+      "Extract invoice fields for INV-1003",
+      "Show invoice details for INV-1004",
+    ],
+    theme: {
+      badge: "bg-fuchsia-600",
+      ring: "focus:ring-fuchsia-400/40",
+      chip: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 hover:border-fuchsia-300 dark:border-fuchsia-700/40 dark:bg-fuchsia-900/20 dark:text-fuchsia-100",
+    },
+  },
+
+  forecasting: {
+    title: "Forecasting",
+    hint: 'Try: "List low stock items below reorder point"',
+    prompts: [
+      "List low stock items below reorder point",
+      "Suggest reorder qty for low stock items",
+      "Show production delays",
+    ],
+    theme: {
+      badge: "bg-emerald-600",
+      ring: "focus:ring-emerald-400/40",
+      chip: "border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-300 dark:border-emerald-700/40 dark:bg-emerald-900/20 dark:text-emerald-100",
+    },
+  },
+
+  workflow_ai: {
+    title: "Workflow AI",
+    hint: 'Try: "Show approval workflow"',
+    prompts: ["Show approval workflow", "Show workflow rule", "Approval flow for PO > RM 20k"],
+    theme: {
+      badge: "bg-amber-600",
+      ring: "focus:ring-amber-400/40",
+      chip: "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-300 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-100",
+    },
+  },
+};
+
 function RobotIcon(props: { className?: string }) {
-  // simple inline svg robot icon (no dependency)
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-      className={props.className}
-    >
-      <path
-        d="M10 2h4v2h-4V2Z"
-        className="fill-current opacity-80"
-      />
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={props.className}>
+      <path d="M10 2h4v2h-4V2Z" className="fill-current opacity-80" />
       <path
         d="M7 7a5 5 0 0 1 10 0v1h1a3 3 0 0 1 3 3v5a6 6 0 0 1-6 6H9a6 6 0 0 1-6-6v-5a3 3 0 0 1 3-3h1V7Z"
         className="fill-current"
@@ -61,7 +128,7 @@ export default function Welcome() {
   const { auth } = usePage<SharedData>().props;
   const isAuth = !!auth?.user;
 
-  // ✅ System identity (you can rename here)
+  // ✅ system identity (rename here)
   const SYSTEM_NAME = "ERP AI Expert";
 
   const logoUrl =
@@ -70,7 +137,7 @@ export default function Welcome() {
   const heroImageUrl =
     "https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1400&q=80";
 
-  // Chat state
+  // chat state
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [error, setError] = useState("");
@@ -80,9 +147,18 @@ export default function Welcome() {
   const [remaining, setRemaining] = useState<number | null>(isAuth ? null : 5);
   const noTriesLeft = !isAuth && remaining !== null && remaining <= 0;
 
+  // ✅ module state
+  const [activeModule, setActiveModule] = useState<ModuleKey>("erp_chat");
+  const [enabledModules, setEnabledModules] = useState<Record<ModuleKey, boolean>>({
+    erp_chat: true,
+    document_ai: false,
+    forecasting: false,
+    workflow_ai: false,
+  });
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ intro system message (only once)
+  // intro once (only first render)
   useEffect(() => {
     if (chat.length > 0) return;
 
@@ -92,12 +168,13 @@ export default function Welcome() {
         name: SYSTEM_NAME,
         text:
           `Hello! I’m ${SYSTEM_NAME} (demo dataset mode).\n\n` +
+          `Active module: ${MODULES.erp_chat.title}\n\n` +
           `Try:\n` +
-          `• Show unpaid invoices > RM 10k\n` +
-          `• Who has overdue payments?\n` +
-          `• List low stock items below reorder point\n` +
-          `• Show production delays\n` +
-          `• Show approval workflow`,
+          `• ${MODULES.erp_chat.prompts[0]}\n` +
+          `• ${MODULES.erp_chat.prompts[2]}\n` +
+          `• ${MODULES.forecasting.prompts[0]}\n` +
+          `• ${MODULES.forecasting.prompts[2]}\n` +
+          `• ${MODULES.workflow_ai.prompts[0]}`,
       },
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,7 +185,7 @@ export default function Welcome() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chat, error]);
 
-  // Load remaining tries for guest
+  // load remaining tries (guest)
   useEffect(() => {
     if (isAuth) return;
 
@@ -120,10 +197,35 @@ export default function Welcome() {
       .catch(() => {});
   }, [isAuth]);
 
-  const onSend = async () => {
+  // ✅ enable module (Option A)
+  const onEnableModule = (key: ModuleKey) => {
+    setEnabledModules((prev) => ({ ...prev, [key]: true }));
+    setActiveModule(key);
+
+    setChat((prev) => [
+      ...prev,
+      {
+        role: "system",
+        name: SYSTEM_NAME,
+        text: `✅ Enabled: ${MODULES[key].title}\n\n${MODULES[key].hint}\n\nTip: click a prompt chip below to auto-send.`,
+      },
+    ]);
+  };
+
+  // ✅ switch active module (already enabled)
+  const onSwitchModule = (key: ModuleKey) => {
+    setActiveModule(key);
+    setChat((prev) => [
+      ...prev,
+      { role: "system", name: SYSTEM_NAME, text: `🔁 Active module: ${MODULES[key].title}` },
+    ]);
+  };
+
+  // ✅ send message (shared by input + prompt chips)
+  const sendMessage = async (text: string) => {
     setError("");
 
-    const value = message.trim();
+    const value = text.trim();
     if (!value) {
       setError("Please type a message.");
       return;
@@ -134,13 +236,19 @@ export default function Welcome() {
       return;
     }
 
-    // show user message immediately
-    setChat((prev) => [...prev, { role: "user", name: auth?.user?.name ?? "You", text: value }]);
-    setMessage("");
+    // show user msg immediately
+    setChat((prev) => [
+      ...prev,
+      { role: "user", name: auth?.user?.name ?? "You", text: value },
+    ]);
     setLoading(true);
 
     try {
-      const { data } = await http.post<TrySuccess>("/ai/try", { message: value });
+      // pass active module to backend (backend can restrict answers by module)
+      const { data } = await http.post<TrySuccess>("/ai/try", {
+        message: value,
+        module: activeModule,
+      });
 
       if (typeof data?.remaining === "number") setRemaining(data.remaining);
 
@@ -150,7 +258,6 @@ export default function Welcome() {
         return;
       }
 
-      // append bot answer
       setChat((prev) => [...prev, { role: "bot", name: SYSTEM_NAME, text: ans }]);
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -160,7 +267,6 @@ export default function Welcome() {
         if (typeof data?.remaining === "number") setRemaining(data.remaining);
         if (data?.requires_login) setRemaining(0);
 
-        // 422: out of range / dataset missing -> show error only (no bot msg)
         if (status === 422) {
           setError(
             data?.message ||
@@ -169,7 +275,6 @@ export default function Welcome() {
           return;
         }
 
-        // 401: login required
         if (status === 401) {
           setError(data?.message || "Please log in to continue using AI.");
           return;
@@ -182,36 +287,40 @@ export default function Welcome() {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
+      setMessage(""); // clear input if it was used
     }
   };
 
-  // Cards
-  const fallbackImg =
-    "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80";
+  const onSend = () => sendMessage(message);
 
+  // cards (UI)
   const cards = useMemo(
     () => [
       {
+        key: "erp_chat" as const,
         title: "ERP Chat",
         desc: "Search records + explain fields in seconds.",
         img: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80",
         tag: "Copilot",
       },
       {
+        key: "document_ai" as const,
         title: "Document AI",
-        desc: "Extract invoice/PO data + auto matching.",
+        desc: "Extract invoice fields + show invoice details.",
         img: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
         tag: "Finance",
       },
       {
+        key: "forecasting" as const,
         title: "Forecasting",
         desc: "Inventory + production planning alerts.",
         img: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80",
         tag: "Operations",
       },
       {
+        key: "workflow_ai" as const,
         title: "Workflow AI",
-        desc: "Approve/reject suggestions + automation flow.",
+        desc: "Approval rules + automation flow.",
         img: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1200&q=80",
         tag: "Automation",
       },
@@ -236,7 +345,6 @@ export default function Welcome() {
       );
     }
 
-    // bot
     return (
       <div className="h-8 w-8 shrink-0 rounded-full bg-emerald-600 text-white flex items-center justify-center">
         <RobotIcon className="h-5 w-5 text-white" />
@@ -245,14 +353,12 @@ export default function Welcome() {
   };
 
   const bubbleClass = (role: Role) => {
-    // ✅ different colors for each role + dark mode
     if (role === "user") {
       return "bg-blue-600 text-white border-blue-600/30 dark:bg-blue-500 dark:border-blue-400/30";
     }
     if (role === "system") {
       return "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/20 dark:text-amber-100 dark:border-amber-700/40";
     }
-    // bot
     return "bg-gray-100 text-gray-900 border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700";
   };
 
@@ -260,6 +366,11 @@ export default function Welcome() {
     if (role === "user") return "justify-end";
     return "justify-start";
   };
+
+  const fallbackImg =
+    "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80";
+
+  const activeTheme = MODULES[activeModule].theme;
 
   return (
     <>
@@ -338,11 +449,14 @@ export default function Welcome() {
                 </span>
               </h1>
 
-              {/* ✅ Chat */}
+              {/* Chat */}
               <div className="mt-6 rounded-xl border border-[#19140035] bg-[#FDFDFC] p-4 dark:border-[#3E3E3A] dark:bg-[#0f0f0f]">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-medium dark:text-white">
-                    Test chat (dataset)
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2.5 w-2.5 rounded-full ${activeTheme.badge}`} />
+                    <div className="text-xs font-medium dark:text-white">
+                      Test chat (dataset) · {MODULES[activeModule].title}
+                    </div>
                   </div>
 
                   {!isAuth && remaining !== null && (
@@ -352,16 +466,34 @@ export default function Welcome() {
                   )}
                 </div>
 
+                {/* Prompt chips (based on active module) */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {MODULES[activeModule].prompts.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={loading || noTriesLeft}
+                      onClick={() => sendMessage(p)}
+                      className={[
+                        "rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                        activeTheme.chip,
+                        loading || noTriesLeft ? "opacity-60 cursor-not-allowed" : "",
+                      ].join(" ")}
+                      title="Click to send"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
                 {/* chat history */}
-                <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-[#19140035] bg-white p-3 dark:border-[#3E3E3A] dark:bg-[#161615]">
+                <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-[#19140035] bg-white p-3 dark:border-[#3E3E3A] dark:bg-[#161615]">
                   <div className="space-y-3">
                     {chat.map((m, idx) => (
                       <div key={idx} className={`flex ${rowAlign(m.role)} gap-2`}>
-                        {/* avatar left for bot/system, right for user */}
                         {m.role !== "user" && renderAvatar(m.role)}
 
                         <div className={`max-w-[85%] ${m.role === "user" ? "text-right" : "text-left"}`}>
-                          {/* name */}
                           <div className="mb-1 text-[10px] text-gray-500 dark:text-gray-400">
                             {m.role === "user" ? (m.name ?? "You") : (m.name ?? SYSTEM_NAME)}
                           </div>
@@ -386,11 +518,15 @@ export default function Welcome() {
                 {/* input */}
                 <div className="mt-3 flex gap-2">
                   <input
-                    className="h-10 w-full rounded-lg border border-[#19140035] bg-white px-3 text-sm outline-none focus:border-[#1915014a]
-                    dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#EDEDEC]"
+                    className={[
+                      "h-10 w-full rounded-lg border border-[#19140035] bg-white px-3 text-sm outline-none",
+                      "focus:ring-2",
+                      activeTheme.ring,
+                      "dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#EDEDEC]",
+                    ].join(" ")}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder='Type your message... (e.g. "Show unpaid invoices > RM 10k")'
+                    placeholder={`Type a message… (${MODULES[activeModule].title})`}
                     disabled={loading || noTriesLeft}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") onSend();
@@ -417,11 +553,8 @@ export default function Welcome() {
                   )}
                 </div>
 
-                {/* error only (no bot message) */}
                 {error && (
-                  <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-                    {error}
-                  </div>
+                  <div className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</div>
                 )}
               </div>
             </div>
@@ -447,50 +580,82 @@ export default function Welcome() {
               AI modules you can add next
             </div>
             <div className="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">
-              Plug-and-play ideas to make your ERP smarter.
+              Enable a module → it becomes active and shows prompts above.
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {cards.map((card) => (
-                <div
-                  key={card.title}
-                  className="group overflow-hidden rounded-2xl border border-[#19140035] bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md
-                  dark:border-[#3E3E3A] dark:bg-[#161615]"
-                >
-                  <div className="relative h-32 w-full overflow-hidden bg-gray-100 dark:bg-black/20">
-                    <img
-                      src={card.img}
-                      alt={card.title}
-                      className="block h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = fallbackImg;
-                      }}
-                    />
-                    <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#1b1b18] backdrop-blur dark:bg-black/40 dark:text-white">
-                      {card.tag}
+              {Object.entries(MODULES).map(([key, meta]) => {
+                const k = key as ModuleKey;
+                const enabled = enabledModules[k];
+                const active = activeModule === k;
+
+                return (
+                  <div
+                    key={k}
+                    className={[
+                      "group overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
+                      "dark:bg-[#161615] dark:border-[#3E3E3A]",
+                      active ? "border-black/30 dark:border-white/30" : "border-[#19140035]",
+                    ].join(" ")}
+                  >
+                    <div className="relative h-32 w-full overflow-hidden bg-gray-100 dark:bg-black/20">
+                      <img
+                        src={
+                          cards.find((c) => c.key === k)?.img ||
+                          "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=80"
+                        }
+                        alt={meta.title}
+                        className="block h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = fallbackImg;
+                        }}
+                      />
+                      <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold text-[#1b1b18] backdrop-blur dark:bg-black/40 dark:text-white">
+                        {cards.find((c) => c.key === k)?.tag ?? "Module"}
+                      </div>
+
+                      {active && (
+                        <div className="absolute right-3 top-3 rounded-full bg-black/80 px-2 py-1 text-[11px] font-semibold text-white">
+                          Active
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-[#1b1b18] dark:text-[#EDEDEC]">
+                          {meta.title}
+                        </div>
+                        <div className={`h-2.5 w-2.5 rounded-full ${meta.theme.badge}`} />
+                      </div>
+
+                      <div className="mt-1 text-xs leading-5 text-[#706f6c] dark:text-[#A1A09A]">
+                        {cards.find((c) => c.key === k)?.desc || meta.hint}
+                      </div>
+
+                      {/* Enable / Switch */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!enabled) return onEnableModule(k);
+                          return onSwitchModule(k);
+                        }}
+                        className={[
+                          "mt-4 inline-flex w-full items-center justify-center rounded-lg border bg-white px-3 py-2 text-xs font-semibold",
+                          "dark:bg-[#161615] dark:text-[#EDEDEC]",
+                          active
+                            ? "border-black/30 dark:border-white/30"
+                            : "border-[#19140035] hover:border-[#1915014a] dark:border-[#3E3E3A] dark:hover:border-[#62605b]",
+                        ].join(" ")}
+                      >
+                        {!enabled ? "Enable" : active ? "Active" : "Switch to this"}
+                      </button>
                     </div>
                   </div>
-
-                  <div className="p-4">
-                    <div className="text-sm font-semibold text-[#1b1b18] dark:text-[#EDEDEC]">
-                      {card.title}
-                    </div>
-                    <div className="mt-1 text-xs leading-5 text-[#706f6c] dark:text-[#A1A09A]">
-                      {card.desc}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="mt-4 inline-flex w-full items-center justify-center rounded-lg border border-[#19140035] bg-white px-3 py-2 text-xs font-semibold hover:border-[#1915014a]
-                      dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#EDEDEC] dark:hover:border-[#62605b]"
-                    >
-                      Enable
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>

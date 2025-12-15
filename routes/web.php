@@ -14,6 +14,7 @@ Route::get('/ai/try-status', AiTryStatusController::class)->name('ai.try.status'
 Route::post('/ai/try', AiTryPromptController::class)
     ->middleware('throttle:20,1')
     ->name('ai.try');
+Route::post('/ai/modules/enable', [AiTryPromptController::class, 'enableModule']);
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
