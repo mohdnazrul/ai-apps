@@ -5,6 +5,7 @@ yarn-error.log
 
 # Laravel 4 specific
 bootstrap/compiled.php
+app/storage/
 
 # Laravel 5 & Lumen specific
 public/storage
@@ -20,3 +21,11 @@ Homestead.yaml
 Homestead.json
 /.vagrant
 .phpunit.result.cache
+
+
+# Allow demo dataset to be committed
+!storage/
+!storage/app/
+!storage/app/private/
+!storage/app/private/ai/
+!storage/app/private/ai/demo_dataset.json
