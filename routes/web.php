@@ -2,10 +2,18 @@
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use App\Http\Controllers\AiTryPromptController;
+use App\Http\Controllers\AiTryStatusController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
+
+// ✅ guest allowed (5 tries), then login required
+Route::get('/ai/try-status', AiTryStatusController::class)->name('ai.try.status');
+Route::post('/ai/try', AiTryPromptController::class)
+    ->middleware('throttle:20,1')
+    ->name('ai.try');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
