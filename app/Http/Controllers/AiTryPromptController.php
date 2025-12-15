@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class AiTryPromptController extends Controller
 {
@@ -44,21 +43,8 @@ class AiTryPromptController extends Controller
                 'message' => $userText,
             ]);
 
-            // Your disk "local" root is storage/app/private
-            $path = 'ai/demo_dataset.json';
-
-            if (!Storage::exists($path)) {
-                Log::warning('AI TRY: dataset missing', ['path' => $path]);
-
-                return response()->json([
-                    'message' => 'Dataset is missing. Please contact the administrator.',
-                    'remaining' => $remaining,
-                    'requires_login' => false,
-                ], 500);
-            }
-
-            $dataset = json_decode(Storage::get($path), true);
-            if (!is_array($dataset)) $dataset = [];
+            // ✅ dataset from function (NO JSON FILE)
+            $dataset = $this->demoDataset();
 
             [$answer, $intent] = $this->answerFromDataset($userText, $dataset);
 
@@ -95,13 +81,42 @@ class AiTryPromptController extends Controller
     }
 
     /**
+     * Demo dataset stored in PHP (no .json file).
+     */
+    private function demoDataset(): array
+    {
+        return [
+            "invoices" => [
+                ["no" => "INV-1001", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 15800, "due_date" => "2025-12-01"],
+                ["no" => "INV-1002", "customer" => "XYZ Enterprise", "status" => "paid",   "total" => 5200,  "due_date" => "2025-11-20"],
+                ["no" => "INV-1003", "customer" => "ABC Sdn Bhd",    "status" => "unpaid", "total" => 27500, "due_date" => "2025-11-15"],
+                ["no" => "INV-1004", "customer" => "Naxxy Trading",  "status" => "unpaid", "total" => 9800,  "due_date" => "2025-12-10"],
+            ],
+
+            "stock_items" => [
+                ["sku" => "PAPER-A4", "name" => "A4 Paper 80gsm", "qty" => 120, "reorder_point" => 200],
+                ["sku" => "INK-CMYK", "name" => "CMYK Ink Set",   "qty" => 1,   "reorder_point" => 3],
+                ["sku" => "GLUE-01",  "name" => "Binding Glue",   "qty" => 10,  "reorder_point" => 20],
+            ],
+
+            "production" => [
+                ["job" => "JOB-9001", "title" => "Brochure Print", "status" => "delayed",  "due_date" => "2025-12-12", "reason" => "Machine maintenance"],
+                ["job" => "JOB-9002", "title" => "Packaging Box",  "status" => "on_track", "due_date" => "2025-12-18", "reason" => ""],
+            ],
+
+            "workflows" => [
+                ["rule" => "PO > RM 20,000 requires Finance approval then Director approval."],
+            ],
+        ];
+    }
+
+    /**
      * Returns: [answerText|null, intentString]
      */
     private function answerFromDataset(string $q, array $data): array
     {
         $qLower = mb_strtolower(trim($q));
 
-        // helpers
         $hasAny = function (array $needles) use ($qLower): bool {
             foreach ($needles as $n) {
                 if ($n !== '' && str_contains($qLower, $n)) return true;
@@ -112,7 +127,7 @@ class AiTryPromptController extends Controller
         // ─────────────────────────────────────────────
         // 0) Greetings / help
         // ─────────────────────────────────────────────
-        if ($hasAny(['hi', 'hello', 'hey', 'hai', 'hye', 'assalamualaikum'])) {
+        if ($hasAny(['hi', 'hello', 'hey', 'hai', 'hye', 'assalamualaikum', 'help'])) {
             $help = "Hello! I’m ERP AI (demo dataset mode).\n\nTry:\n"
                 . "- Show unpaid invoices > RM 10k\n"
                 . "- Who has overdue payments?\n"
@@ -123,11 +138,7 @@ class AiTryPromptController extends Controller
         }
 
         // ─────────────────────────────────────────────
-        // 1) Invoices / unpaid / outstanding / overdue
-        // Supports:
-        // - "unpaid invoices rm10k top 10"
-        // - "outstanding bills above 10000"
-        // - "overdue invoices"
+        // 1) Invoices (unpaid / outstanding / overdue)
         // ─────────────────────────────────────────────
         $isInvoiceQuery = $hasAny(['invoice', 'invoices', 'bill', 'bills']);
         $isUnpaidQuery  = $hasAny(['unpaid', 'outstanding', 'not paid', 'pending']);
@@ -160,9 +171,7 @@ class AiTryPromptController extends Controller
                 return "{$no} — {$cust} — RM {$total} (due {$due})";
             });
 
-            $title = $isOverdueQuery
-                ? "Top overdue unpaid invoices"
-                : "Top unpaid invoices";
+            $title = $isOverdueQuery ? "Top overdue unpaid invoices" : "Top unpaid invoices";
 
             return [
                 "{$title} >= RM " . number_format($min, 2) . ":\n" . $lines->implode("\n"),
@@ -170,7 +179,7 @@ class AiTryPromptController extends Controller
             ];
         }
 
-        // Special: “who is overdue” without invoice keyword
+        // Special: “who has overdue payments?” without invoice keyword
         if ($isOverdueQuery && !$isInvoiceQuery) {
             $today = now()->toDateString();
 
@@ -194,10 +203,6 @@ class AiTryPromptController extends Controller
 
         // ─────────────────────────────────────────────
         // 2) Low stock / reorder
-        // Supports:
-        // - "low stock"
-        // - "below reorder point"
-        // - "suggest reorder qty"
         // ─────────────────────────────────────────────
         if ($hasAny(['low stock', 'low-stock', 'reorder point', 'reorder', 'below reorder'])) {
             $items = collect($data['stock_items'] ?? [])
@@ -212,7 +217,7 @@ class AiTryPromptController extends Controller
                 $qty = (int)($i['qty'] ?? 0);
                 $rp = (int)($i['reorder_point'] ?? 0);
 
-                // Suggest reorder to reach 2x RP (simple demo rule)
+                // Suggest reorder to reach 2x RP (demo rule)
                 $suggest = max(0, ($rp * 2) - $qty);
 
                 return "{$sku} — {$name} | qty {$qty} / rp {$rp} | suggest reorder {$suggest}";
@@ -223,11 +228,8 @@ class AiTryPromptController extends Controller
 
         // ─────────────────────────────────────────────
         // 3) Production delays
-        // Supports:
-        // - "production delay"
-        // - "delayed jobs"
         // ─────────────────────────────────────────────
-        if ($hasAny(['production delay', 'production delays', 'delayed job', 'delayed jobs', 'delay today', 'production delayed'])) {
+        if ($hasAny(['production delay', 'production delays', 'delayed job', 'delayed jobs', 'production delayed', 'delay'])) {
             $jobs = collect($data['production'] ?? [])
                 ->filter(fn ($j) => ($j['status'] ?? '') === 'delayed')
                 ->values();
@@ -247,9 +249,6 @@ class AiTryPromptController extends Controller
 
         // ─────────────────────────────────────────────
         // 4) Workflow / approval flow
-        // Supports:
-        // - "approval flow"
-        // - "workflow rule"
         // ─────────────────────────────────────────────
         if ($hasAny(['approval', 'approval flow', 'workflow', 'rule'])) {
             $wf = collect($data['workflows'] ?? [])->first();
@@ -264,13 +263,14 @@ class AiTryPromptController extends Controller
 
     private function extractMoney(string $qLower): ?float
     {
-        // rm 10k / rm10k / rm 20000 / 10000
+        // rm 10k / rm10k / rm 20000
         if (preg_match('/rm\s*([\d\.]+)\s*(k)?/i', $qLower, $m)) {
             $num = (float) $m[1];
             $isK = !empty($m[2]);
             return $isK ? $num * 1000 : $num;
         }
 
+        // fallback: any big number (e.g. 10000)
         if (preg_match('/\b(\d{4,})\b/', $qLower, $m)) {
             return (float) $m[1];
         }
