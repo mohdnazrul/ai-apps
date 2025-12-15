@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Storage;
+
+class MakeDemoDataset extends Command
+{
+    protected $signature = 'ai:make-demo-dataset {--force : Overwrite if file exists}';
+    protected $description = 'Generate demo_dataset.example.json in storage/app/private/ai';
+
+    public function handle(): int
+    {
+        // Your "local" disk root is storage/app/private (based on your filesystems.php)
+        // So this path is relative to that root:
+        $path = 'ai/demo_dataset.example.json';
+
+        if (Storage::exists($path) && !$this->option('force')) {
+            $this->warn("File already exists: storage/app/private/{$path}");
+            $this->line("Run with --force to overwrite.");
+            return self::SUCCESS;
+        }
+
+        $dataset = [
+            "invoices" => [
+                ["no" => "INV-1001", "customer" => "ABC Sdn Bhd",     "status" => "unpaid", "total" => 15800, "due_date" => "2025-12-01"],
+                ["no" => "INV-1002", "customer" => "XYZ Enterprise", "status" => "paid",   "total" => 5200,  "due_date" => "2025-11-20"],
+                ["no" => "INV-1003", "customer" => "ABC Sdn Bhd",     "status" => "unpaid", "total" => 27500, "due_date" => "2025-11-15"],
+                ["no" => "INV-1004", "customer" => "Naxxy Trading",  "status" => "unpaid", "total" => 9800,  "due_date" => "2025-12-10"],
+            ],
+            "stock_items" => [
+                ["sku" => "PAPER-A4",  "name" => "A4 Paper 80gsm", "qty" => 120, "reorder_point" => 200],
+                ["sku" => "INK-CMYK",  "name" => "CMYK Ink Set",  "qty" => 1,   "reorder_point" => 3],
+                ["sku" => "GLUE-01",   "name" => "Binding Glue",  "qty" => 10,  "reorder_point" => 20],
+            ],
+            "production" => [
+                ["job" => "JOB-9001", "title" => "Brochure Print", "status" => "delayed",  "due_date" => "2025-12-12", "reason" => "Machine maintenance"],
+                ["job" => "JOB-9002", "title" => "Packaging Box",  "status" => "on_track", "due_date" => "2025-12-18", "reason" => ""],
+            ],
+            "workflows" => [
+                ["rule" => "PO > RM 20,000 requires Finance approval then Director approval."],
+            ],
+        ];
+
+        // Pretty JSON
+        $json = json_encode($dataset, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        Storage::put($path, $json);
+
+        $this->info("✅ Generated: storage/app/private/{$path}");
+        return self::SUCCESS;
+    }
+}
