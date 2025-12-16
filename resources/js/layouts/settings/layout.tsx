@@ -8,8 +8,8 @@ import { type PropsWithChildren } from 'react';
 const navItems: NavItem[] = [
     { title: 'Profile', href: '/settings/profile', icon: null },
     { title: 'Password', href: '/settings/password', icon: null },
-    { title: 'Appearance', href: '/settings/appearance', icon: null },
-    { title: 'User List', href: '/settings/user', icon: null },
+    // { title: 'Appearance', href: '/settings/appearance', icon: null },
+    // { title: 'User List', href: '/settings/user', icon: null },
 ];
 
 export default function SettingsLayout({ children }: PropsWithChildren) {
