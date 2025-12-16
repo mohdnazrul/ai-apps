@@ -18,7 +18,15 @@ Route::post('/ai/modules/enable', [AiTryPromptController::class, 'enableModule']
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
+        return Inertia::render('dashboard', [
+            'app' => [
+                'name' => config('app.name'),
+                 'theme' => [
+                    'brandColor' => '#111827', // slate-900 (example)
+                    'fontFamily' => 'Inter, ui-sans-serif, system-ui',
+                ],
+            ],
+        ]);
     })->name('dashboard');
 
     Route::get('notification', function () {
